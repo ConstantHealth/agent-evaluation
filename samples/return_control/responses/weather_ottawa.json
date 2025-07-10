@@ -1,0 +1,10 @@
+{
+  "statusCode": 200,
+  "body": {
+    "location": "Ottawa",
+    "temperature": 22,
+    "condition": "Sunny",
+    "humidity": 65,
+    "wind_speed": 15
+  }
+}

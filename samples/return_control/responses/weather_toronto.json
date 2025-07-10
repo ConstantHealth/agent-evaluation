@@ -1,0 +1,10 @@
+{
+  "statusCode": 200,
+  "body": {
+    "location": "Toronto",
+    "temperature": 18,
+    "condition": "Cloudy",
+    "humidity": 70,
+    "wind_speed": 20
+  }
+}
