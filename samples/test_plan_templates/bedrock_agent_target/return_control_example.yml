@@ -1,0 +1,52 @@
+evaluator:
+  model: claude-3
+target:
+  type: bedrock-agent
+  bedrock_agent_id: BEDROCK_AGENT_ID
+  bedrock_agent_alias_id: BEDROCK_AGENT_ALIAS_ID
+  # Optional: Add session attributes if your agent uses them
+  bedrock_session_attributes:
+    user_id: "test-user-123"
+    session_type: "evaluation"
+
+tests:
+  # Test 1: Simple returnControl detection
+  # This test will pass if the agent either completes the task or requests returnControl
+  flight_booking_request:
+    steps:
+    - Ask the agent to book a flight to New York
+    expected_results:
+    - The agent either books the flight successfully OR requests additional information via returnControl
+    max_turns: 3
+    initial_prompt: "Please book a flight to New York for next week"
+
+  # Test 2: Agent should handle returnControl gracefully
+  return_control_handling:
+    steps:
+    - Ask the agent to perform a task that requires action group parameters
+    expected_results:
+    - The agent responds appropriately when returnControl is needed
+    - The agent provides clear information about what parameters are required
+    max_turns: 2
+    initial_prompt: "I need to schedule a meeting with the team"
+
+  # Test 3: Test agent's ability to work with provided session context
+  session_based_interaction:
+    steps:
+    - Ask the agent to access user profile information
+    expected_results:
+    - The agent uses session attributes appropriately
+    - The agent either completes the task or requests returnControl with proper context
+    max_turns: 2
+    initial_prompt: "What's my current profile status?"
+
+  # Test 4: Complex multi-parameter request
+  complex_parameter_request:
+    steps:
+    - Request the agent to create a comprehensive report with multiple parameters
+    expected_results:
+    - The agent identifies all required parameters
+    - The agent structures the returnControl request clearly
+    - The agent provides helpful guidance on what information is needed
+    max_turns: 3
+    initial_prompt: "Create a comprehensive quarterly sales report for Q1 2024"

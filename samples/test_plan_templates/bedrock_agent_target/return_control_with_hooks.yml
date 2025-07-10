@@ -1,0 +1,29 @@
+evaluator:
+  model: claude-3
+target:
+  type: bedrock-agent
+  bedrock_agent_id: BEDROCK_AGENT_ID
+  bedrock_agent_alias_id: BEDROCK_AGENT_ALIAS_ID
+
+tests:
+  # Test with custom hook to handle returnControl
+  return_control_with_hook:
+    steps:
+    - Ask the agent to book a flight with specific requirements
+    expected_results:
+    - The agent successfully books the flight with all required parameters
+    - The agent handles returnControl scenarios appropriately
+    max_turns: 5  # Increased for multi-turn returnControl handling
+    initial_prompt: "Book me a flight from Seattle to New York for March 15th, 2024"
+    hook: samples.hooks.return_control_handler.ReturnControlHandler
+
+  # Test agent's ability to work with complex action groups
+  complex_action_group_test:
+    steps:
+    - Request the agent to perform a multi-step workflow
+    expected_results:
+    - The agent can handle complex workflows requiring multiple action groups
+    - The agent properly manages returnControl for each step
+    max_turns: 6
+    initial_prompt: "Help me plan a business trip including flights, hotel, and car rental"
+    hook: samples.hooks.workflow_handler.WorkflowHandler
