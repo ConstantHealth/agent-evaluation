@@ -39,7 +39,7 @@ class EvaluatorFactory(BaseModel):
 
     config: dict
 
-    def create(self, test: Test, target: BaseTarget, work_dir: str) -> BaseEvaluator:
+    def create(self, test: Test, target: BaseTarget, work_dir: str, **kwargs) -> BaseEvaluator:
         """Create an instance of the evaluator class specified in the configuration.
 
         Args:
@@ -47,6 +47,7 @@ class EvaluatorFactory(BaseModel):
             target (BaseTarget): The target agent being evaluated.
             work_dir (str): The directory where the test result and trace will be
                 generated.
+            **kwargs: Additional arguments to pass to the evaluator constructor.
 
         Returns:
             BaseEvaluator: An instance of the evaluator class, with the configuration
@@ -60,6 +61,7 @@ class EvaluatorFactory(BaseModel):
             work_dir=work_dir,
             model_config=self._get_bedrock_model_config(),
             **{k: v for k, v in self.config.items() if k not in reserved_config_keys},
+            **kwargs,
         )
 
     def _get_evaluator_class(self) -> type[BaseEvaluator]:

@@ -32,8 +32,11 @@ class TargetFactory(BaseModel):
 
     config: dict
 
-    def create(self) -> BaseTarget:
+    def create(self, **kwargs) -> BaseTarget:
         """Create an instance of the target class specified in the configuration.
+
+        Args:
+            **kwargs: Additional arguments to pass to the target constructor.
 
         Returns:
             BaseTarget: An instance of the target class, with the configuration
@@ -41,7 +44,10 @@ class TargetFactory(BaseModel):
         """
         target_cls = self._get_target_class()
 
-        return target_cls(**{k: v for k, v in self.config.items() if k != "type"})
+        config_params = {k: v for k, v in self.config.items() if k != "type"}
+        config_params.update(kwargs)
+
+        return target_cls(**config_params)
 
     def _get_target_class(self) -> type[BaseTarget]:
         if self.config["type"] in _TARGET_MAP:

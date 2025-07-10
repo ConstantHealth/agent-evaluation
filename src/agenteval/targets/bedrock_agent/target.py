@@ -1,12 +1,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 import uuid
 from typing import Optional
 
 from agenteval.targets import Boto3Target, TargetResponse
 
 _SERVICE_NAME = "bedrock-agent-runtime"
+logger = logging.getLogger(__name__)
 
 
 class BedrockAgentTarget(Boto3Target):
@@ -18,6 +20,7 @@ class BedrockAgentTarget(Boto3Target):
         bedrock_agent_alias_id: str,
         bedrock_session_attributes: Optional[dict] = {},
         bedrock_prompt_session_attributes: Optional[dict] = {},
+        return_control_hook=None,
         **kwargs
     ):
         """Initialize the target.
@@ -27,6 +30,7 @@ class BedrockAgentTarget(Boto3Target):
             bedrock_agent_alias_id (str): The alias of the Bedrock agent.
             bedrock_session_attributes Optional (dict): The dictionary of attributes that persist over a session between a user and agent
             bedrock_prompt_session_attributes Optional (dict): The dictionary of attributes that persist over a single turn (one InvokeAgent call)
+            return_control_hook: Optional hook for return control
         """
         super().__init__(boto3_service_name=_SERVICE_NAME, **kwargs)
         self._bedrock_agent_id = bedrock_agent_id
@@ -39,39 +43,119 @@ class BedrockAgentTarget(Boto3Target):
                 bedrock_prompt_session_attributes
             )
         self._session_id: str = str(uuid.uuid4())
+        self._return_control_hook = return_control_hook
+        self._trace_data = []
+        self._citations = []
 
     def invoke(self, prompt: str) -> TargetResponse:
-        """Invoke the target with a prompt.
+        response = self.boto3_client.invoke_agent(
+            enableTrace=True,
+            agentId=self._bedrock_agent_id,
+            agentAliasId=self._bedrock_agent_alias_id,
+            sessionId=self._session_id,
+            inputText=prompt,
+            sessionState=self._session_state,
+        )
 
-        Args:
-            prompt (str): The prompt as a string.
+        return self.handle_response(response)
 
-        Returns:
-            TargetResponse
-        """
-        args = {
-            "agentId": self._bedrock_agent_id,
-            "agentAliasId": self._bedrock_agent_alias_id,
-            "sessionId": self._session_id,
-            "sessionState": self._session_state,
-            "inputText": prompt,
-            "enableTrace": True,
-        }
-
-        response = self.boto3_client.invoke_agent(**args)
-
+    def handle_response(self, response: dict) -> TargetResponse:
         stream = response["completion"]
         completion = ""
-        trace_data = []
 
         for event in stream:
-            chunk = event.get("chunk")
-            event_trace = event.get("trace")
-            if chunk:
-                completion += chunk.get("bytes").decode()
-            if event_trace:
-                trace_data.append(event_trace.get("trace"))
+            if chunk := event.get("chunk"):
+                completion += chunk["bytes"].decode()
+                if chunk.get("citations"):
+                    self._citations.append(chunk["citations"])
+
+            elif trace := event.get("trace"):
+                self._trace_data.append(trace["trace"])
+
+            elif return_control := event.get("returnControl"):
+                logger.debug(f"Return control event received: {return_control}")
+                return self.handle_return_control(return_control)
+
+        data = {
+            "bedrock_agent_trace": self._trace_data,
+        }
+        if self._citations:
+            data["bedrock_agent_citations"] = self._citations
 
         return TargetResponse(
-            response=completion, data={"bedrock_agent_trace": trace_data}
+            response=completion,
+            data=data
         )
+
+    def handle_return_control(self, return_control: dict) -> TargetResponse:
+        if not self._return_control_hook:
+            # No return control hook, continue normally
+            logger.warning("Return control event received but no hook configured")
+            return TargetResponse(
+                response="",
+                data={"return_control_handled": False}
+            )
+
+        invocation_id = return_control["invocationId"]
+        invocation_inputs = return_control["invocationInputs"]
+        logger.debug(f"Processing return control with {len(invocation_inputs)} invocation inputs")
+
+        invocation_results = []
+        for invocation_input in invocation_inputs:
+            mock_response = self._return_control_hook.get_response_for_invocation(invocation_input)
+
+            if mock_response is None:
+                logger.warning(f"No mock response found for invocation: {invocation_input}")
+                continue
+
+            logger.debug(f"Found mock response for invocation: {invocation_input}")
+
+            invocation_result = {}
+            if invocation_input.get("apiInvocationInput"):
+                input = invocation_input["apiInvocationInput"]
+                invocation_result = {
+                    "apiResult": {
+                        "actionGroup": input["actionGroup"],
+                        "apiPath": input["apiPath"],
+                        "httpMethod": input["httpMethod"],
+                        "responseBody": {
+                            "text": {
+                                "body": mock_response
+                            }
+                        }
+                    }
+                }
+            elif invocation_input.get("functionInvocationInput"):
+                input = invocation_input["functionInvocationInput"]
+                invocation_result = {
+                    "functionResult": {
+                        "actionGroup": input["actionGroup"],
+                        "function": input["function"],
+                        "responseBody": {
+                            "TEXT": {
+                                "body": mock_response
+                            }
+                        }
+                    }
+                }
+            invocation_results.append(invocation_result)
+
+        if not invocation_results:
+            logger.warning("No invocation results found for return control")
+            return TargetResponse(
+                response="",
+                data={"return_control_handled": False}
+            )
+
+        response = self.boto3_client.invoke_agent(
+            enableTrace=True,
+            agentId=self._bedrock_agent_id,
+            agentAliasId=self._bedrock_agent_alias_id,
+            sessionId=self._session_id,
+            sessionState={
+                "invocationId": invocation_id,
+                "returnControlInvocationResults": invocation_results
+            }
+        )
+
+        return self.handle_response(response)

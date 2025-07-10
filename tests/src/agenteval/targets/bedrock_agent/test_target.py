@@ -38,17 +38,12 @@ class TestBedrockAgentTarget:
         mock_invoke_agent.return_value = {
             "completion": [
                 {"chunk": {"bytes": b"test "}},
-                {
-                    "chunk": {
-                        "bytes": b"completion",
-                    },
-                    "trace": {"trace": {"preProcessingTrace": None}},
-                },
+                {"chunk": {"bytes": b"completion"}},
+                {"trace": {"trace": {"preProcessingTrace": None}}}
             ]
         }
 
         response = bedrock_agent_fixture.invoke("test prompt")
 
         assert response.response == "test completion"
-        assert response.data == {
-            "bedrock_agent_trace": [{"preProcessingTrace": None}]}
+        assert response.data == {"bedrock_agent_trace": [{"preProcessingTrace": None}]}

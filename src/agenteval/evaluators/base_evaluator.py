@@ -44,6 +44,7 @@ class BaseEvaluator(ABC):
         aws_region: Optional[str] = None,
         endpoint_url: Optional[str] = None,
         max_retry: int = 10,
+        return_control_hook=None,
     ):
         """Initialize the evaluator.
 
@@ -73,6 +74,7 @@ class BaseEvaluator(ABC):
         self.input_token_count = 0
         self.output_token_count = 0
         self.model_config = model_config
+        self.return_control_hook = return_control_hook
         self.bedrock_runtime_client = create_boto3_client(
             boto3_service_name=_BOTO3_SERVICE_NAME,
             aws_profile=aws_profile,
@@ -139,10 +141,24 @@ class BaseEvaluator(ABC):
         hook_cls = self._get_hook_cls(self.test.hook)
 
         with self.trace:
+            # Run return control hook if present (instance method)
+            if self.return_control_hook:
+                self.return_control_hook.pre_evaluate(self.test, self.trace)
+
+            # Run custom hook if present (static method)
             if hook_cls:
-                hook_cls.pre_evaluate(self.test, self.trace)
+                # Use type: ignore to bypass linter confusion about static methods
+                hook_cls.pre_evaluate(self.test, self.trace)  # type: ignore
+
             self.test_result = self.evaluate()
+
+            # Run return control hook post-evaluation if present (instance method)
+            if self.return_control_hook:
+                self.return_control_hook.post_evaluate(self.test, self.test_result, self.trace)
+
+            # Run custom hook post-evaluation if present (static method)
             if hook_cls:
-                hook_cls.post_evaluate(self.test, self.test_result, self.trace)
+                # Use type: ignore to bypass linter confusion about static methods
+                hook_cls.post_evaluate(self.test, self.test_result, self.trace)  # type: ignore
 
         return self.test_result

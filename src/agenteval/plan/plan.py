@@ -17,11 +17,12 @@ from rich.progress import Progress
 
 from agenteval import defaults
 from agenteval.evaluators import EvaluatorFactory
+from agenteval.hooks.return_control import ReturnControlHook
 from agenteval.plan.exceptions import TestFailureError
 from agenteval.plan.logging import log_run_end, log_run_start
 from agenteval.summary import create_markdown_summary
 from agenteval.targets import TargetFactory
-from agenteval.test import TestSuite
+from agenteval.test import TestSuite, TestResult
 
 _DEFAULT_PLAN_FILE_NAME = "agenteval.yml"
 
@@ -71,7 +72,7 @@ class Plan(BaseModel):
         Returns:
             Plan: A `Plan` instance containing the loaded test plan configurations.
         """
-        plan_path = os.path.join(plan_dir or os.getcwd(), plan_file_name)
+        plan_path = os.path.join(plan_dir or os.getcwd(), plan_file_name or _DEFAULT_PLAN_FILE_NAME)
         plan = cls._load_yaml(plan_path)
         return cls(config=plan)
 
@@ -94,7 +95,7 @@ class Plan(BaseModel):
         Returns:
             str: The path to the YAML file.
         """
-        plan_path = os.path.join(plan_dir or os.getcwd(), plan_file_name)
+        plan_path = os.path.join(plan_dir or os.getcwd(), plan_file_name or _DEFAULT_PLAN_FILE_NAME)
 
         # check if plan exists
         if os.path.exists(plan_path):
@@ -163,7 +164,7 @@ class Plan(BaseModel):
             self._pass_count,
             self._num_tests,
             self._test_suite.tests,
-            list(self._results.values()),
+            [result for result in self._results.values() if result is not None],
         )
 
         if fail_count:
@@ -179,7 +180,7 @@ class Plan(BaseModel):
         self._num_tests = self._test_suite.num_tests
         self._work_dir = work_dir or os.getcwd()
         self._num_threads = self._resolve_num_threads(self._num_tests, num_threads)
-        self._results = {test.name: None for test in self._test_suite}
+        self._results: dict[str, Optional[TestResult]] = {test.name: None for test in self._test_suite}
         self._evaluator_input_token_counts = []
         self._evaluator_output_token_counts = []
         self._pass_count = 0
@@ -198,13 +199,37 @@ class Plan(BaseModel):
                     raise e
 
     def _run_test(self, test):
-        target = self._target_factory.create()
-        evaluator = self._evaluator_factory.create(
-            test=test,
-            target=target,
-            work_dir=self._work_dir,
+        # Check if return control is needed for this test
+        return_control_hook = None
+        target_kwargs = {}
+
+        # Check if any step has expected_invocation
+        has_return_control = any(
+            hasattr(step, 'expected_invocation') and step.expected_invocation
+            for step in test.steps
         )
 
+        if has_return_control:
+            # Create return control hook
+            return_control_hook = ReturnControlHook(test, base_dir=self._work_dir)
+            target_kwargs['return_control_hook'] = return_control_hook
+
+        # Create target with return control hook if needed
+        target = self._target_factory.create(**target_kwargs)
+
+        # Create evaluator with return control hook if needed
+        evaluator_kwargs = {
+            'test': test,
+            'target': target,
+            'work_dir': self._work_dir,
+        }
+
+        if return_control_hook:
+            evaluator_kwargs['return_control_hook'] = return_control_hook
+
+        evaluator = self._evaluator_factory.create(**evaluator_kwargs)
+
+        # Run the test
         result = evaluator.run()
 
         with self._lock:
