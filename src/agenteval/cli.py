@@ -10,7 +10,6 @@ import click
 from agenteval.plan import Plan
 from agenteval.plan.exceptions import TestFailureError
 
-
 class ExitCode(Enum):
     TESTS_FAILED = 1
     PLAN_ALREADY_EXISTS = 2

@@ -57,13 +57,19 @@ class BedrockAgentTarget(Boto3Target):
             sessionState=self._session_state,
         )
 
-        return self.handle_response(response)
+        try:
+            return self.handle_response(response)
+        except Exception as e:
+            logger.error(f"Error handling Bedrock Agent response: {e}")
+            raise e
 
     def handle_response(self, response: dict) -> TargetResponse:
         stream = response["completion"]
         completion = ""
 
         for event in stream:
+            logger.debug(f"Event: {list(event.keys())}")
+
             if chunk := event.get("chunk"):
                 completion += chunk["bytes"].decode()
                 if chunk.get("citations"):
@@ -81,6 +87,8 @@ class BedrockAgentTarget(Boto3Target):
         }
         if self._citations:
             data["bedrock_agent_citations"] = self._citations
+
+        logger.debug(f"Invoke Agent Completed: {completion}")
 
         return TargetResponse(
             response=completion,
